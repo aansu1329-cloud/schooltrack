@@ -14,6 +14,10 @@ import LevyMaster from "./components/LevyMaster.jsx"
 import LevyCollector from "./components/LevyCollector.jsx"
 import LessonNoteSubmission from "./components/LessonNoteSubmission.jsx"
 import WorkOutputChart from './components/WorkOutputChart.jsx'
+import ExamGenerator from "./components/ExamGenerator.jsx"
+import LetterGenerator from "./components/LetterGenerator.jsx"
+import Archive from "./components/Archive.jsx"
+import AnnouncementManager, { AnnouncementBanner } from "./components/AnnouncementManager.jsx"
 
 export default function App(){
   const [page, setPage] = useState('dashboard')
@@ -79,9 +83,10 @@ export default function App(){
     try{
       const sid = getActiveSchoolId()
       if(!sid) return []
-      const ac = classes[0]?.name
+      let ac = null
+      try{ const cs = localStorage.getItem(`${sid}_my_classes`); const ca = cs? JSON.parse(cs):[]; ac = ca[0]?.name }catch{}
       if(!ac) return []
-      const s=localStorage.getItem(`${sid}_selectedSubs_${ac}_v1`) || localStorage.getItem(`${sid}_selectedSubs_${ac}`);
+      let s = localStorage.getItem(getClassKeyVersioned(ac, 'selectedSubs', 'v1')) || localStorage.getItem(`${sid}_selectedSubs_${ac}_v1`) || localStorage.getItem(`${sid}_selectedSubs_${ac}`)
       return s? JSON.parse(s) : []
     }catch{ return [] }
   })
@@ -90,9 +95,10 @@ export default function App(){
     try{
       const sid = getActiveSchoolId()
       if(!sid) return []
-      const ac = classes[0]?.name
+      let ac = null
+      try{ const cs = localStorage.getItem(`${sid}_my_classes`); const ca = cs? JSON.parse(cs):[]; ac = ca[0]?.name }catch{}
       if(!ac) return []
-      const s=localStorage.getItem(`${sid}_students_${ac}_v2`);
+      let s = localStorage.getItem(getClassKeyVersioned(ac, 'students', 'v2')) || localStorage.getItem(`${sid}_students_${ac}_v2`) || localStorage.getItem(`students_${ac}_v2`)
       return s? JSON.parse(s) : []
     }catch{ return [] }
   })
@@ -118,9 +124,9 @@ export default function App(){
     const sid = getActiveSchoolId()
     if(!sid ||!activeClass) return
     try{
-      const s=localStorage.getItem(`${sid}_students_${activeClass.name}_v2`)
+      let s = localStorage.getItem(getClassKeyVersioned(activeClass.name, 'students', 'v2')) || localStorage.getItem(`${sid}_students_${activeClass.name}_v2`) || localStorage.getItem(`students_${activeClass.name}_v2`)
       setStudents(s? JSON.parse(s) : [])
-      const sub=localStorage.getItem(`${sid}_selectedSubs_${activeClass.name}_v1`) || localStorage.getItem(`${sid}_selectedSubs_${activeClass.name}`)
+      let sub = localStorage.getItem(getClassKeyVersioned(activeClass.name, 'selectedSubs', 'v1')) || localStorage.getItem(`${sid}_selectedSubs_${activeClass.name}_v1`) || localStorage.getItem(`${sid}_selectedSubs_${activeClass.name}`)
       if(sub) setSelectedSubs(JSON.parse(sub))
       else setSelectedSubs([])
     }catch{}
@@ -261,6 +267,25 @@ export default function App(){
     setTeachers([res.user]); setClasses(res.classes); setActiveClass(res.classes[0]||null); setStudents([]); setSelectedSubs([]); setCurrentUser(res.user); setPage('dashboard')
   }
 
+  const handleAddStudent = ()=>{
+    if(!firstName.trim()){ alert('Enter First Name'); return }
+    if(editingId){
+      setStudents(students.map(s=> String(s.id)===String(editingId)? {...s, firstName: firstName.trim(), otherNames: otherNames.trim(), gender, parentName, parentPhone, photo: studentPhoto, status: statusTab }: s ))
+      setEditingId(null)
+    }else{
+      const newStu = { id: Date.now(), firstName: firstName.trim(), otherNames: otherNames.trim(), gender, parentName, parentPhone, photo: studentPhoto, status: statusTab, className: activeClass?.name }
+      setStudents([...students, newStu])
+    }
+    setFirstName(''); setOtherNames(''); setParentName(''); setParentPhone(''); setStudentPhoto(''); setActionMenuId(null)
+  }
+  const handleEditStudent = (s)=>{
+    setEditingId(s.id); setFirstName(s.firstName); setOtherNames(s.otherNames); setGender(s.gender||'Boy'); setParentName(s.parentName||''); setParentPhone(s.parentPhone||''); setStudentPhoto(s.photo||'')
+  }
+  const handleDeleteStudent = (id)=>{
+    if(!confirm('Delete this student?')) return
+    setStudents(students.filter(s=> String(s.id)!==String(id)))
+  }
+
   const visibleClasses = (currentUser?.role === 'OWNER' || currentUser?.role === 'HEADTEACHER')? classes : classes.filter(c=> {
     const cName = c.name.trim().toUpperCase();
     if(currentUser?.assignedClasses && currentUser.assignedClasses.length>0){
@@ -269,6 +294,13 @@ export default function App(){
     return cName === (currentUser?.assignedClass||'').trim().toUpperCase();
   })
   const isHeadteacher = currentUser?.role === 'OWNER' || currentUser?.role === 'HEADTEACHER'
+
+  const filteredStudents = students.filter(s=>{
+    const full = `${s.firstName} ${s.otherNames}`.toLowerCase()
+    const matchesSearch = full.includes(search.toLowerCase())
+    const matchesStatus = statusTab==='All' || (s.status||'Current')===statusTab
+    return matchesSearch && matchesStatus
+  })
 
   if(!currentUser){
     return (
@@ -356,9 +388,13 @@ export default function App(){
       <div style={{minHeight:'100vh', background:'#0B1222', padding:20}}>
         <div style={{maxWidth:1100, margin:'0 auto'}}>
           <button onClick={()=>setPage('myclassroom')} style={{background:'white', border:'none', padding:'8px 16px', borderRadius:100, cursor:'pointer', fontWeight:'700'}}>‹ My Classroom</button>
-          <h2 style={{fontWeight:'900', marginTop:16, color:'white'}}>{activeClass.name}</h2>
-          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:14, marginTop:20}}>
-            <div onClick={()=>setPage('students')} style={{background:'#1E293B', border:'1px solid #2A3552', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>👨‍🎓</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Students</div></div>
+          <h2 style={{fontWeight:'900', marginTop:16, color:'white'}}>{activeClass.name} — {students.length} Students ✓</h2>
+
+          <AnnouncementBanner />
+
+          <div style={{marginTop:8, fontSize:11, color:'#F59E0B', fontWeight:'800'}}>— OLD CARDS —</div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:14, marginTop:8}}>
+            <div onClick={()=>setPage('students')} style={{background:'#1E293B', border:'1px solid #2A3552', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>👨‍🎓</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Students ({students.length})</div></div>
             <div onClick={()=>setPage('subjects')} style={{background:'#1E293B', border:'1px solid #3B82F6', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>📚</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>My Subjects</div></div>
             <div onClick={()=>setPage('assessments')} style={{background:'#1E293B', border:'1px solid #2A3552', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>📝</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Assessments</div></div>
             <div onClick={()=>setPage('broadsheet')} style={{background:'#1E293B', padding:22, borderRadius:16, cursor:'pointer', border:'1px solid #F59E0B'}}><div style={{fontSize:28}}>📋</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Broad Sheet</div></div>
@@ -366,6 +402,58 @@ export default function App(){
             <div onClick={()=>setPage('levy-collector')} style={{background:'#052E16', border:'2px solid #10B981', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>💰</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Levy Collector</div></div>
             <div onClick={()=>setPage('attendance')} style={{background:'#1E293B', border:'1px solid #2A3552', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>📅</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Attendance</div></div>
             <div onClick={()=>setPage('teacher-info')} style={{background:'#1E293B', border:'2px solid #A78BFA', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>👨‍🏫</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Class Teacher Info</div></div>
+          </div>
+
+          <div style={{marginTop:20, fontSize:11, color:'#10B981', fontWeight:'800'}}>— NEW CARDS - FINAL 4 —</div>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:14, marginTop:8}}>
+            <div onClick={()=>setPage('exams')} style={{background:'#422006', border:'2px solid #F59E0B', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>📝</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Exams & Questions</div><div style={{fontSize:10, color:'#FCD34D', marginTop:4}}>Midterm • End Term • Easy/Hard</div><div style={{fontSize:9, background:'#F59E0B', color:'black', display:'inline-block', padding:'2px 6px', borderRadius:100, marginTop:6, fontWeight:'900'}}>NEW ✓</div></div>
+
+            <div onClick={()=>setPage('letters')} style={{background:'#14532D', border:'2px solid #4ADE80', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>✉️</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Official Letters</div><div style={{fontSize:10, color:'#86EFAC', marginTop:4}}>Custom Title + 2 Routes + Share</div><div style={{fontSize:9, background:'#4ADE80', color:'black', display:'inline-block', padding:'2px 6px', borderRadius:100, marginTop:6, fontWeight:'900'}}>NEW ✓</div></div>
+
+            <div onClick={()=>setPage('archive')} style={{background:'#1E1B4B', border:'2px solid #818CF8', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>🗂️</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Archive</div><div style={{fontSize:10, color:'#A5B4FC', marginTop:4}}>Old Exams & Letters • Download Again</div><div style={{fontSize:9, background:'#818CF8', color:'white', display:'inline-block', padding:'2px 6px', borderRadius:100, marginTop:6, fontWeight:'900'}}>NEW ✓</div></div>
+
+            <div onClick={()=>setPage('announcements')} style={{background:'#581C87', border:'2px solid #C084FC', padding:22, borderRadius:16, cursor:'pointer'}}><div style={{fontSize:28}}>📢</div><div style={{marginTop:8, fontWeight:'800', color:'white'}}>Announcements</div><div style={{fontSize:10, color:'#D8B4FE', marginTop:4}}>Headmaster • 1/2/3 days • Auto delete</div><div style={{fontSize:9, background:'#C084FC', color:'black', display:'inline-block', padding:'2px 6px', borderRadius:100, marginTop:6, fontWeight:'900'}}>NEW ✓</div></div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  if(page==='students'){
+    return (
+      <div style={{minHeight:'100vh', background:'#0B1222', color:'white', padding:16}}>
+        <div style={{maxWidth:1100, margin:'0 auto'}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10}}>
+            <button onClick={()=>setPage('classdetail')} style={{background:'white', border:'none', padding:'8px 16px', borderRadius:100, cursor:'pointer', fontWeight:'700'}}>‹ {activeClass?.name}</button>
+            <div style={{fontWeight:'900'}}>{activeClass?.name} — {filteredStudents.length}/{students.length} Students</div>
+          </div>
+          <div style={{background:'#151E32', borderRadius:16, padding:16, marginTop:16, border:'1px solid #2A3552'}}>
+            <div style={{fontWeight:'800', marginBottom:12}}>{editingId? 'Edit Student' : 'Add New Student'}</div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+              <input value={firstName} onChange={e=>setFirstName(e.target.value)} placeholder="First Name *" style={{background:'#0F172A', border:'1px solid #2A3552', borderRadius:10, padding:12, color:'white'}}/>
+              <input value={otherNames} onChange={e=>setOtherNames(e.target.value)} placeholder="Other Names" style={{background:'#0F172A', border:'1px solid #2A3552', borderRadius:10, padding:12, color:'white'}}/>
+              <select value={gender} onChange={e=>setGender(e.target.value)} style={{background:'#0F172A', border:'1px solid #2A3552', borderRadius:10, padding:12, color:'white'}}><option>Boy</option><option>Girl</option></select>
+              <select value={statusTab} onChange={e=>setStatusTab(e.target.value)} style={{background:'#0F172A', border:'1px solid #2A3552', borderRadius:10, padding:12, color:'white'}}><option>Current</option><option>Former</option><option>All</option></select>
+              <input value={parentName} onChange={e=>setParentName(e.target.value)} placeholder="Parent Name" style={{background:'#0F172A', border:'1px solid #2A3552', borderRadius:10, padding:12, color:'white'}}/>
+              <input value={parentPhone} onChange={e=>setParentPhone(e.target.value)} placeholder="Parent Phone" style={{background:'#0F172A', border:'1px solid #2A3552', borderRadius:10, padding:12, color:'white'}}/>
+            </div>
+            <button onClick={handleAddStudent} style={{marginTop:12, background:'white', color:'black', padding:'12px 20px', borderRadius:100, border:'none', fontWeight:'900', cursor:'pointer', width:'100%'}}>{editingId? 'Update Student' : '+ Add Student'}</button>
+            {editingId && <button onClick={()=>{setEditingId(null); setFirstName(''); setOtherNames('')}} style={{marginTop:8, background:'#1E293B', color:'white', padding:'8px', borderRadius:100, border:'1px solid #2A3552', width:'100%'}}>Cancel</button>}
+          </div>
+          <div style={{display:'flex', gap:8, marginTop:16}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search students..." style={{flex:1, background:'#151E32', border:'1px solid #2A3552', borderRadius:100, padding:'10px 16px', color:'white'}}/>
+            <select value={statusTab} onChange={e=>setStatusTab(e.target.value)} style={{background:'#151E32', border:'1px solid #2A3552', borderRadius:100, padding:'10px', color:'white'}}><option>Current</option><option>Former</option><option>All</option></select>
+          </div>
+          <div style={{marginTop:16, display:'grid', gap:10, gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))'}}>
+            {filteredStudents.map(s=>(
+              <div key={s.id} style={{background:'#151E32', border:'1px solid #2A3552', borderRadius:14, padding:14}}>
+                <div style={{display:'flex', justifyContent:'space-between'}}><div style={{fontWeight:'800'}}>{s.firstName} {s.otherNames}</div><div style={{fontSize:10, background:'#0F172A', padding:'4px 8px', borderRadius:100}}>{s.gender}</div></div>
+                <div style={{fontSize:11, color:'#94A3B8', marginTop:4}}>Parent: {s.parentName||'N/A'}</div>
+                <div style={{display:'flex', gap:6, marginTop:10}}>
+                  <button onClick={()=>handleEditStudent(s)} style={{flex:1, background:'#1E293B', color:'white', border:'1px solid #2A3552', padding:'8px', borderRadius:8, fontSize:11, fontWeight:'800'}}>Edit</button>
+                  <button onClick={()=>handleDeleteStudent(s.id)} style={{flex:1, background:'#7F1D1D', color:'white', border:'1px solid #DC2626', padding:'8px', borderRadius:8, fontSize:11, fontWeight:'800'}}>Delete</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -375,6 +463,8 @@ export default function App(){
     const handleSave = ()=>{ setSelectedSubs(tempSubs); setPage('classdetail') }
     return (<div style={{minHeight:'100vh', background:'#070E22', color:'white'}}><div style={{display:'flex', justifyContent:'space-between', padding:'14px 20px', borderBottom:'1px solid #1E293B'}}><div style={{display:'flex', gap:12, alignItems:'center'}}><button onClick={()=>setPage('classdetail')} style={{width:40, height:40, borderRadius:12, background:'#1A2236', border:'1px solid #2A3552', color:'white', cursor:'pointer'}}>‹</button><div><div style={{fontWeight:'800'}}>Subjects ({tempSubs.length})</div></div></div><button onClick={handleSave} style={{background:'white', color:'black', padding:'10px 20px', borderRadius:100, border:'none', fontWeight:'800', cursor:'pointer'}}>Save {tempSubs.length}</button></div><div style={{padding:20, maxWidth:1100, margin:'0 auto'}}><div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(190px, 1fr))', gap:12}}>{allSubjectsList.map(sub=>{ const checked = tempSubs.includes(sub); return (<div key={sub} onClick={()=> setTempSubs(checked? tempSubs.filter(x=>x!==sub) : [...tempSubs, sub])} style={{background: checked? '#1E3A8A':'#111E3B', border: checked? '2px solid #60A5FA':'1px solid #1E3A8A', padding:'18px 14px', borderRadius:12, cursor:'pointer', display:'flex', gap:10, alignItems:'center'}}><div style={{width:20, height:20, borderRadius:4, background: checked?'white':'transparent', border: checked?'none':'1.5px solid #3B82F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:'900'}}>{checked?'✓':''}</div><span style={{fontSize:11, fontWeight:'700'}}>{sub}</span></div>)})}</div></div></div>)
   }
+
+  // --- FIXED ROUTING - CLEAN - NO DUPLICATES ---
   if(page==='teachers'){ return <TeacherManagement teachers={teachers} setTeachers={setTeachers} classes={classes} setClasses={setClasses} onBack={()=>setPage('classdetail')} /> }
   if(page==='assessments'){ return <ClassAssessments activeClass={activeClass} onBack={()=>setPage('classdetail')} /> }
   if(page==='attendance'){ return <AttendanceRegister activeClass={activeClass} students={students} onBack={()=>setPage('classdetail')} /> }
@@ -383,9 +473,16 @@ export default function App(){
   if(page==='schoolsettings'){ return <SchoolSettings onBack={()=>setPage('dashboard')} /> }
   if(page==='terminal'){ return <TerminalReport activeClass={activeClass} onBack={()=>setPage('classdetail')} /> }
   if(page==='levy-master'){ return <LevyMaster onBack={()=>setPage('headteacher')} /> }
+  if(page==='levy-collector'){ return <LevyCollector activeClass={activeClass} onBack={()=>setPage('classdetail')} /> }
   if(page==='lesson-notes'){ return <LessonNoteSubmission onBack={()=>setPage('headteacher')} /> }
   if(page==='work-output'){ return <WorkOutputChart onBack={()=>setPage('headteacher')} /> }
-  if(page==='levy-collector'){ return <LevyCollector activeClass={activeClass} onBack={()=>setPage('classdetail')} /> }
   if(page==='teacher-info'){ return <TeacherInfo activeClass={activeClass} onBack={()=>setPage('classdetail')} /> }
+
+  // FINAL 4 CARDS ONLY - YOUR SETTINGS KEPT
+  if(page==='exams'){ return <ExamGenerator activeClass={activeClass} selectedSubs={selectedSubs} onBack={()=>setPage('classdetail')} /> }
+  if(page==='letters'){ return <LetterGenerator activeClass={activeClass} students={students} onBack={()=>setPage('classdetail')} /> }
+  if(page==='archive'){ return <Archive onBack={()=>setPage('classdetail')} /> }
+  if(page==='announcements'){ return <AnnouncementManager onBack={()=>setPage('classdetail')} /> }
+
   return <div style={{color:'white', padding:20, background:'#0B1222', minHeight:'100vh'}}>Loading {page}...</div>
 }

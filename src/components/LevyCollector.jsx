@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { getActiveSchoolId, getClassKeyVersioned } from '../utils/storage.js'
 
 const GROUPS = {
   A:{keys:['KG','NURSERY']}, B:{keys:['1','2','3']}, C:{keys:['4','5','6']}
@@ -15,15 +16,32 @@ function getGroup(className){
 
 export default function LevyCollector({ activeClass, onBack }){
   const className = activeClass?.name || '5A'
-  const studentsRaw = JSON.parse(localStorage.getItem(`students_${className}_v2`)|| localStorage.getItem('students_5A_v2')||'[]')
-  const students = studentsRaw.map(s=> ({...s, fullName: `${s.firstName} ${s.otherNames}`.trim()}))
+  const sid = getActiveSchoolId()
+
+  // FIXED: Use correct versioned key with School ID
+  const studentsKey = getClassKeyVersioned(className, 'students', 'v2')
+  const fallbackKey1 = `${sid}_students_${className}_v2`
+  const fallbackKey2 = `students_${className}_v2`
+
+  const studentsRaw = useMemo(()=>{
+    try{
+      let raw = localStorage.getItem(studentsKey)
+      if(!raw) raw = localStorage.getItem(fallbackKey1)
+      if(!raw) raw = localStorage.getItem(fallbackKey2)
+      if(!raw) raw = localStorage.getItem('students_5A_v2')
+      return JSON.parse(raw||'[]')
+    }catch{ return [] }
+  }, [studentsKey, fallbackKey1, fallbackKey2])
+
+  const students = studentsRaw.map(s=> ({...s, fullName: `${s.firstName||''} ${s.otherNames||''}`.trim()|| s.name || 'Unknown'}))
+
   const config = JSON.parse(localStorage.getItem('levy_config_v1')||'{}')
   const group = getGroup(className)
   const items = config[group]?.items || []
   const totalLevy = items.reduce((s,i)=> s+ Number(i.amount||0),0)
   const term = config.term || 'Term 1'
   const year = config.year || '2025/2026'
-  const storageKey = `levy_payments_${className}_${term}_${year}`
+  const storageKey = `levy_payments_${sid}_${className}_${term}_${year}`
 
   const [payments, setPayments] = useState(()=> {
     try{ return JSON.parse(localStorage.getItem(storageKey)||'{}') }catch{ return {} }
@@ -33,8 +51,9 @@ export default function LevyCollector({ activeClass, onBack }){
   const [method, setMethod] = useState('Cash')
 
   useEffect(()=> localStorage.setItem(storageKey, JSON.stringify(payments)), [payments, storageKey])
+  useEffect(()=> { if(students.length>0 &&!selectedId) setSelectedId(students[0].id) }, [students, selectedId])
 
-  const selectedStudent = students.find(s=>s.id===selectedId)
+  const selectedStudent = students.find(s=>String(s.id)===String(selectedId))
   const curPaid = payments[selectedId]?.paid || 0
   const balance = totalLevy - curPaid
 
@@ -56,6 +75,19 @@ export default function LevyCollector({ activeClass, onBack }){
     return {collected, owing, full, totalDue: students.length*totalLevy}
   }, [payments, totalLevy, students])
 
+  if(students.length===0){
+    return (
+      <div style={{minHeight:'100vh', background:'#F1F5F9', padding:20}}>
+        <button onClick={onBack} style={{background:'#0F172A', color:'white', padding:'8px 16px', borderRadius:100, border:'none', fontWeight:800}}>‹ Back</button>
+        <div style={{background:'white', padding:40, borderRadius:12, textAlign:'center', marginTop:20}}>
+          <div style={{fontSize:40}}>👨‍🎓</div>
+          <div style={{fontWeight:900, marginTop:10}}>No students in {className}</div>
+          <div style={{fontSize:12, color:'#64748B', marginTop:6}}>Storage Key checked: {studentsKey}<br/>Go to Students page and add students first!</div>
+        </div>
+      </div>
+    )
+  }
+
   return(
     <div style={{minHeight:'100vh', background:'#F1F5F9', padding:8, fontFamily:'Inter'}}>
       <div style={{maxWidth:1100, margin:'0 auto'}}>
@@ -65,7 +97,7 @@ export default function LevyCollector({ activeClass, onBack }){
           </button>
         )}
         <div style={{background:'white', borderRadius:12, padding:12, marginBottom:8, display:'flex', justifyContent:'space-between', flexWrap:'wrap', gap:8}}>
-          <div><div style={{fontWeight:900, fontSize:16}}>{className} - Levy Collector</div><div style={{fontSize:11, color:'#64748B'}}>{term} {year} • Group {group} • Total: GHS {totalLevy} {items.map(i=> `${i.name}:${i.amount}`).join(' + ')}</div></div>
+          <div><div style={{fontWeight:900, fontSize:16}}>{className} - Levy Collector FIXED ✓ {students.length} Students Loaded</div><div style={{fontSize:11, color:'#64748B'}}>{term} {year} • Group {group} • Total: GHS {totalLevy} {items.map(i=> `${i.name}:${i.amount}`).join(' + ')}</div></div>
           <div style={{display:'flex', gap:6, fontSize:11}}><div style={{background:'#DCFCE7', padding:'6px 10px', borderRadius:100, fontWeight:800}}>Collected: GHS {stats.collected}</div><div style={{background:'#FEE2E2', padding:'6px 10px', borderRadius:100, fontWeight:800}}>Owing: GHS {stats.owing}</div><div style={{background:'#0F172A', color:'white', padding:'6px 10px', borderRadius:100, fontWeight:800}}>{stats.full}/{students.length} Paid</div></div>
         </div>
 
@@ -76,7 +108,7 @@ export default function LevyCollector({ activeClass, onBack }){
               const bal=totalLevy-p
               const status= bal<=0? 'FULL' : p>0? 'PART' : 'OWING'
               const color= status==='FULL'? '#16A34A' : status==='PART'? '#D97706' : '#DC2626'
-              return <div key={s.id} onClick={()=>setSelectedId(s.id)} style={{padding:8, borderRadius:8, border:selectedId===s.id?'2px solid #0F172A':'1px solid #E2E8F0', marginBottom:6, cursor:'pointer', background:selectedId===s.id?'#F8FAFC':'white'}}>
+              return <div key={s.id} onClick={()=>setSelectedId(s.id)} style={{padding:8, borderRadius:8, border:String(selectedId)===String(s.id)?'2px solid #0F172A':'1px solid #E2E8F0', marginBottom:6, cursor:'pointer', background:String(selectedId)===String(s.id)?'#F8FAFC':'white'}}>
                 <div style={{display:'flex', justifyContent:'space-between'}}><div style={{fontWeight:800, fontSize:12}}>{s.fullName}</div><div style={{fontSize:9, fontWeight:900, color, background:color+'20', padding:'2px 6px', borderRadius:100}}>{status}</div></div>
                 <div style={{fontSize:11, marginTop:2}}>Paid: <b>{p}</b> | Bal: <b style={{color:bal>0?'#DC2626':'#16A34A'}}>{bal}</b></div>
                 <div style={{height:4, background:'#E2E8F0', borderRadius:10, marginTop:4}}><div style={{width:`${totalLevy? Math.min(100, (p/totalLevy)*100):0}%`, height:'100%', background:color, borderRadius:10}}></div></div>
